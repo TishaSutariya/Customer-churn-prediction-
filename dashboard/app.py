@@ -10,8 +10,7 @@ DATA_PATH = BASE_DIR / "data" / "processed" / "cleaned_churn_data.csv"
 MODEL_PATH = BASE_DIR / "models" / "trained" / "model.pkl"
 SCALER_PATH = BASE_DIR / "models" / "trained" / "scaler.pkl"
 REPORT_PATH = BASE_DIR / "reports"
-BANNER_PATH = BASE_DIR / "banner.png"
-
+BANNER_PATH = BASE_DIR / "dashboard" / "banner.png"
 st.set_page_config(page_title="Customer Churn Dashboard", layout="wide")
 
 st.title("📊 Customer Churn Dashboard")
