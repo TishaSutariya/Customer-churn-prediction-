@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Data (large files)
+data/raw/*.csv
+data/processed/*.csv
+
+# Models (large files)
+models/*.pkl
+models/*.h5
+
+# Charts/Reports (optional)
+reports/*.png
+reports/*.jpg
+
+# Your banner (if not needed in repo)
+!dashboard/banner.png
+
+# Misc
+*.txt
+!requirements.txt
+!.gitignore
+!requirement.txt
