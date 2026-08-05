@@ -25,8 +25,8 @@ Thumbs.db
 *.log
 
 # Data (large files)
-data/raw/*.csv
-data/processed/*.csv
+#data/raw/*.csv
+#data/processed/*.csv
 
 # Models (large files)
 models/*.pkl
