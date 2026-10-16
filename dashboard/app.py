@@ -4,7 +4,6 @@
 # ============================================================
 
 from pathlib import Path
-import re
 import warnings
 
 import numpy as np
@@ -15,8 +14,14 @@ import plotly.graph_objects as go
 
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -24,13 +29,8 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     confusion_matrix,
+    classification_report,
     roc_curve,
-)
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import (
-    RandomForestClassifier,
-    GradientBoostingClassifier,
 )
 
 warnings.filterwarnings("ignore")
@@ -41,7 +41,7 @@ warnings.filterwarnings("ignore")
 # ============================================================
 
 st.set_page_config(
-    page_title="Customer Churn Intelligence",
+    page_title="Customer Churn Intelligence Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -49,172 +49,71 @@ st.set_page_config(
 
 
 # ============================================================
-# 2. PROJECT PATHS
+# 2. CHART COLORS ONLY
+#    These colors are NOT applied to the dashboard UI.
 # ============================================================
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+CHART_PINK = "#F4A6C1"
+CHART_LIGHT_GREEN = "#A8D5B5"
 
-DATA_PATH = (
-    BASE_DIR
-    / "data"
-    / "processed"
-    / "cleaned_churn_data.csv"
-)
+CHART_PALETTE = [
+    CHART_PINK,
+    CHART_LIGHT_GREEN,
+]
+
+CHURN_COLORS = {
+    "Churned": CHART_PINK,
+    "Retained": CHART_LIGHT_GREEN,
+}
+
+px.defaults.color_discrete_sequence = CHART_PALETTE
 
 
 # ============================================================
-# 3. THEME AND CSS
+# 3. FULL-WIDTH LAYOUT
+#    Keep the existing dashboard UI styling unchanged.
 # ============================================================
 
 st.markdown(
     """
     <style>
+        #MainMenu {
+            visibility: hidden;
+        }
 
-    /* Main background */
+        footer {
+            visibility: hidden;
+        }
 
-    .stApp {
-        background-color: #F3F6FA;
-        color: #243B53;
-    }
+        header[data-testid="stHeader"] {
+            visibility: hidden;
+            height: 0;
+        }
 
-    .block-container {
-        max-width: 100%;
-        padding: 1.2rem 1.8rem 2rem 1.8rem;
-    }
+        [data-testid="stSidebar"] {
+            display: none;
+        }
 
-    /* Hide sidebar */
+        [data-testid="collapsedControl"] {
+            display: none;
+        }
 
-    section[data-testid="stSidebar"] {
-        display: none;
-    }
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 2rem;
+            padding-left: 2rem;
+            padding-right: 2rem;
+            max-width: 100%;
+        }
 
-    button[data-testid="collapsedControl"] {
-        display: none;
-    }
+        [data-testid="stMetric"] {
+            padding: 0.25rem 0;
+        }
 
-    /* Header */
-
-    .dashboard-header {
-        background: linear-gradient(
-            110deg,
-            #1F344D,
-            #294C6B
-        );
-        padding: 23px 28px;
-        border-radius: 12px;
-        margin-bottom: 18px;
-        color: #FFFFFF;
-    }
-
-    .dashboard-title {
-        font-size: 29px;
-        font-weight: 750;
-        color: #FFFFFF;
-        margin: 0;
-    }
-
-    .dashboard-subtitle {
-        font-size: 12px;
-        color: #D9E5F0;
-        margin-top: 7px;
-    }
-
-    /* Section headings */
-
-    .section-heading {
-        font-size: 20px;
-        font-weight: 750;
-        color: #243B53;
-        margin-top: 15px;
-        margin-bottom: 9px;
-    }
-
-    .section-subtitle {
-        color: #627D98;
-        font-size: 12px;
-        margin-bottom: 12px;
-    }
-
-    /* KPI cards */
-
-    div[data-testid="stMetric"] {
-        background: #FFFFFF;
-        border: 1px solid #DCE5EF;
-        border-radius: 10px;
-        padding: 12px 14px;
-        box-shadow: none;
-    }
-
-    div[data-testid="stMetricLabel"] {
-        color: #627D98;
-        font-size: 12px;
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: #243B53;
-        font-size: 23px;
-        font-weight: 750;
-    }
-
-    /* Forms */
-
-    div[data-testid="stForm"] {
-        background: #FFFFFF;
-        padding: 16px;
-        border: 1px solid #DCE5EF;
-        border-radius: 10px;
-    }
-
-    /* Containers */
-
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: #FFFFFF;
-        border: 1px solid #DCE5EF;
-        border-radius: 10px;
-    }
-
-    /* Buttons */
-
-    .stButton > button {
-        background: #294C6B;
-        color: #FFFFFF;
-        border-radius: 7px;
-        border: 1px solid #294C6B;
-        font-weight: 650;
-    }
-
-    .stButton > button:hover {
-        background: #1F344D;
-        color: #FFFFFF;
-        border-color: #1F344D;
-    }
-
-    .stDownloadButton > button {
-        border-radius: 7px;
-        font-weight: 600;
-    }
-
-    /* Dividers */
-
-    hr {
-        border-color: #DCE5EF;
-        margin: 15px 0;
-    }
-
-    /* Smaller chart headings */
-
-    h4 {
-        color: #294C6B !important;
-        font-size: 15px !important;
-    }
-
-    /* Data table */
-
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #DCE5EF;
-        border-radius: 8px;
-    }
-
+        .section-heading {
+            margin-top: 1.4rem;
+            margin-bottom: 0.7rem;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -222,1861 +121,2195 @@ st.markdown(
 
 
 # ============================================================
-# 4. HELPER FUNCTIONS
+# 4. HEADER
 # ============================================================
 
-def normalize_name(name):
-    return re.sub(
-        r"[^a-z0-9]",
-        "",
-        str(name).lower(),
-    )
+st.title("Customer Churn Intelligence Dashboard")
+
+st.caption(
+    "AI-Powered Customer Insights | Predictive Analytics | "
+    "Retention Intelligence"
+)
+
+st.markdown("---")
 
 
-def find_column(dataframe, possible_names):
+# ============================================================
+# 5. ROBUST DATASET DISCOVERY
+# ============================================================
 
-    normalized_columns = {
-        normalize_name(column): column
-        for column in dataframe.columns
-    }
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = APP_DIR.parent
 
-    for name in possible_names:
+POSSIBLE_DATA_NAMES = [
+    "cleaned_churn_data.csv",
+    "WA_Fn-UseC_-Telco-Customer-Churn.csv",
+    "Telco-Customer-Churn.csv",
+    "telco_customer_churn.csv",
+    "customer_churn.csv",
+    "churn.csv",
+    "data.csv",
+]
 
-        key = normalize_name(name)
+IGNORED_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "__pycache__",
+    ".idea",
+    ".vscode",
+    "site-packages",
+    "dist",
+    "build",
+}
 
-        if key in normalized_columns:
-            return normalized_columns[key]
+
+def find_dataset():
+    """
+    Search likely project directories and their subdirectories
+    for a supported customer churn CSV file.
+    """
+
+    search_roots = [
+        APP_DIR,
+        PROJECT_DIR,
+        PROJECT_DIR.parent,
+        PROJECT_DIR.parent.parent,
+    ]
+
+    checked_roots = set()
+
+    # First search for expected filenames.
+    for root in search_roots:
+        if not root.exists():
+            continue
+
+        root = root.resolve()
+
+        if root in checked_roots:
+            continue
+
+        checked_roots.add(root)
+
+        for filename in POSSIBLE_DATA_NAMES:
+            direct_path = root / filename
+
+            if direct_path.is_file():
+                return direct_path
+
+        try:
+            for path in root.rglob("*.csv"):
+                if any(
+                    part.lower() in IGNORED_DIRS
+                    for part in path.parts
+                ):
+                    continue
+
+                if path.name.lower() in {
+                    name.lower()
+                    for name in POSSIBLE_DATA_NAMES
+                }:
+                    return path
+
+        except (PermissionError, OSError):
+            continue
+
+    # If the filename differs, search for another CSV that
+    # appears to contain customer churn data.
+    for root in checked_roots:
+        try:
+            for path in root.rglob("*.csv"):
+                if any(
+                    part.lower() in IGNORED_DIRS
+                    for part in path.parts
+                ):
+                    continue
+
+                try:
+                    preview = pd.read_csv(
+                        path,
+                        nrows=5,
+                        low_memory=False,
+                    )
+
+                    normalized_columns = {
+                        str(column).strip().lower()
+                        for column in preview.columns
+                    }
+
+                    has_churn = any(
+                        column in normalized_columns
+                        for column in [
+                            "churn",
+                            "exited",
+                            "customerchurn",
+                            "churnstatus",
+                            "target",
+                        ]
+                    )
+
+                    if has_churn:
+                        return path
+
+                except Exception:
+                    continue
+
+        except (PermissionError, OSError):
+            continue
 
     return None
 
 
-def format_currency(value):
-
-    if pd.isna(value):
-        return "N/A"
-
-    return f"₹{value:,.2f}"
+DATA_PATH = find_dataset()
 
 
-def make_chart(fig, height=275):
+# ============================================================
+# 6. LOAD AND CLEAN DATA
+# ============================================================
 
-    fig.update_layout(
-        height=height,
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        font=dict(
-            family="Arial",
-            color="#334155",
-            size=10,
-        ),
-        margin=dict(
-            l=12,
-            r=12,
-            t=38,
-            b=18,
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            font=dict(size=9),
-        ),
+@st.cache_data(show_spinner="Loading customer churn dataset...")
+def load_data(file_path, modified_time):
+    """
+    Load CSV and perform basic data cleaning.
+    modified_time is included in the cache key so that
+    changes to the CSV invalidate the cached result.
+    """
+
+    del modified_time
+
+    data = pd.read_csv(
+        file_path,
+        low_memory=False,
     )
 
-    fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#E8EEF5",
-        zeroline=False,
-    )
+    # Clean column names.
+    data.columns = [
+        str(column).strip()
+        for column in data.columns
+    ]
 
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#E8EEF5",
-        zeroline=False,
-    )
+    # Remove duplicate columns.
+    data = data.loc[:, ~data.columns.duplicated()].copy()
 
-    return fig
+    # Remove completely empty rows and columns.
+    data = data.dropna(axis=0, how="all")
+    data = data.dropna(axis=1, how="all")
 
+    # Normalize common whitespace-only values.
+    for column in data.select_dtypes(include=["object"]).columns:
+        data[column] = data[column].apply(
+            lambda value: (
+                np.nan
+                if isinstance(value, str) and not value.strip()
+                else value.strip()
+                if isinstance(value, str)
+                else value
+            )
+        )
 
-def convert_churn_target(series):
-
-    if pd.api.types.is_numeric_dtype(series):
-
-        return pd.to_numeric(
-            series,
+    # Convert TotalCharges to numeric if available.
+    if "TotalCharges" in data.columns:
+        data["TotalCharges"] = pd.to_numeric(
+            data["TotalCharges"],
             errors="coerce",
         )
 
-    mapping = {
-        "yes": 1,
-        "no": 0,
-        "true": 1,
-        "false": 0,
-        "1": 1,
-        "0": 0,
-        "churned": 1,
-        "retained": 0,
-    }
-
-    return (
-        series.astype(str)
-        .str.strip()
-        .str.lower()
-        .map(mapping)
-    )
+    return data
 
 
-# ============================================================
-# 5. LOAD DATA
-# ============================================================
-
-@st.cache_data
-def load_dataset(path, modification_time):
-
-    del modification_time
-
-    return pd.read_csv(path)
-
-
-if not DATA_PATH.exists():
-
+if DATA_PATH is None:
     st.error(
-        "Cleaned dataset not found."
+        "Customer churn dataset could not be found."
     )
 
-    st.code(str(DATA_PATH))
-
-    st.info(
-        "Check data/processed/cleaned_churn_data.csv."
+    st.write(
+        "Place your CSV file in the project folder or its "
+        "data subfolder."
     )
+
+    st.write("Supported filenames include:")
+
+    for filename in POSSIBLE_DATA_NAMES:
+        st.write(f"- `{filename}`")
+
+    st.write("**Folders searched:**")
+
+    for root in [
+        APP_DIR,
+        PROJECT_DIR,
+        PROJECT_DIR.parent,
+        PROJECT_DIR.parent.parent,
+    ]:
+        st.code(str(root))
 
     st.stop()
 
 
 try:
-
-    df = load_dataset(
+    raw_data = load_data(
         str(DATA_PATH),
         DATA_PATH.stat().st_mtime,
     )
 
 except Exception as error:
-
-    st.error(
-        f"Unable to load the dataset: {error}"
-    )
-
+    st.error("The dataset was found but could not be loaded.")
+    st.exception(error)
     st.stop()
 
 
-df.columns = [
-    str(column).strip()
-    for column in df.columns
+if raw_data.empty:
+    st.error("The dataset contains no records.")
+    st.stop()
+
+
+# ============================================================
+# 7. DETECT TARGET COLUMN
+# ============================================================
+
+TARGET_CANDIDATES = [
+    "Churn",
+    "Exited",
+    "CustomerChurn",
+    "ChurnStatus",
+    "Target",
 ]
 
+target_lookup = {
+    str(column).strip().lower(): column
+    for column in raw_data.columns
+}
 
-# ============================================================
-# 6. PREPARE DATA
-# ============================================================
+TARGET_COLUMN = None
 
-churn_col = find_column(
-    df,
-    ["Churn", "Customer Churn", "Exited"],
-)
+for candidate in TARGET_CANDIDATES:
+    if candidate.lower() in target_lookup:
+        TARGET_COLUMN = target_lookup[candidate.lower()]
+        break
 
-if churn_col is None:
 
+if TARGET_COLUMN is None:
     st.error(
-        "Churn column was not found."
+        "Could not identify the churn target column."
     )
 
     st.write(
-        "Available columns:",
-        df.columns.tolist(),
+        "The dataset must contain a target column such as "
+        "`Churn`, `Exited`, `CustomerChurn`, `ChurnStatus`, "
+        "or `Target`."
     )
 
     st.stop()
 
 
-df[churn_col] = convert_churn_target(
-    df[churn_col]
-)
-
-df = df.dropna(
-    subset=[churn_col]
-).copy()
-
-df[churn_col] = df[churn_col].astype(int)
-
-df = df[
-    df[churn_col].isin([0, 1])
-].copy()
-
-
-contract_col = find_column(
-    df,
-    ["Contract", "Contract Type"],
-)
-
-internet_col = find_column(
-    df,
-    ["InternetService", "Internet Service"],
-)
-
-tenure_col = find_column(
-    df,
-    ["tenure", "Tenure"],
-)
-
-monthly_col = find_column(
-    df,
-    ["MonthlyCharges", "Monthly Charges"],
-)
-
-total_col = find_column(
-    df,
-    ["TotalCharges", "Total Charges"],
-)
-
-customer_id_col = find_column(
-    df,
-    ["customerID", "CustomerID", "Customer ID"],
-)
-
-
 # ============================================================
-# 7. PREPARE MODEL FEATURES
+# 8. NORMALIZE CHURN LABELS
 # ============================================================
 
-model_df = df.copy()
+def normalize_churn_target(series):
+    """
+    Convert common churn labels to binary values:
+    1 = Churned
+    0 = Retained
+    """
 
-drop_columns = [churn_col]
-
-if customer_id_col:
-    drop_columns.append(customer_id_col)
-
-X = model_df.drop(
-    columns=drop_columns,
-    errors="ignore",
-)
-
-y = model_df[churn_col].astype(int)
-
-X = pd.get_dummies(
-    X,
-    drop_first=True,
-    dtype=int,
-)
-
-X = X.replace(
-    [np.inf, -np.inf],
-    np.nan,
-)
-
-X = X.loc[
-    :,
-    X.nunique(dropna=False) > 1
-]
-
-X = X.dropna(
-    axis=1,
-    how="all",
-)
-
-if X.empty:
-    st.error("No usable model features were found.")
-    st.stop()
-
-if y.nunique() != 2:
-    st.error("The dataset must contain both churn classes.")
-    st.stop()
-
-
-# ============================================================
-# 8. MODEL TRAINING AND COMPARISON
-# ============================================================
-
-@st.cache_resource
-def train_models(X_data, y_data):
-
-    X_train, X_test, y_train, y_test = (
-        train_test_split(
-            X_data,
-            y_data,
-            test_size=0.20,
-            random_state=42,
-            stratify=y_data,
-        )
+    numeric_values = pd.to_numeric(
+        series,
+        errors="coerce",
     )
 
-    definitions = {
+    non_missing = numeric_values.dropna()
 
-        "Logistic Regression":
-            LogisticRegression(
-                max_iter=2000,
-                class_weight="balanced",
-                random_state=42,
-            ),
+    if (
+        len(non_missing) > 0
+        and set(non_missing.unique()).issubset({0, 1})
+    ):
+        return numeric_values.astype("Int64")
 
-        "Decision Tree":
-            __import__(
-                "sklearn.tree",
-                fromlist=["DecisionTreeClassifier"],
-            ).DecisionTreeClassifier(
-                max_depth=10,
-                class_weight="balanced",
-                random_state=42,
-            ),
+    text_values = series.astype("string").str.strip().str.lower()
 
-        "Random Forest":
-            RandomForestClassifier(
-                n_estimators=200,
-                max_depth=15,
-                class_weight="balanced",
-                random_state=42,
-                n_jobs=-1,
-            ),
-
-        "Gradient Boosting":
-            GradientBoostingClassifier(
-                n_estimators=100,
-                learning_rate=0.1,
-                random_state=42,
-            ),
+    positive_labels = {
+        "yes",
+        "true",
+        "1",
+        "churn",
+        "churned",
+        "exited",
+        "left",
+        "positive",
     }
 
-    models = {}
-    metrics = []
-    predictions = {}
-    probabilities = {}
+    negative_labels = {
+        "no",
+        "false",
+        "0",
+        "retained",
+        "stay",
+        "stayed",
+        "not churned",
+        "negative",
+    }
 
-    for name, estimator in definitions.items():
-
-        pipeline = Pipeline(
-            steps=[
-                (
-                    "imputer",
-                    SimpleImputer(
-                        strategy="median",
-                    ),
-                ),
-                (
-                    "scaler",
-                    StandardScaler(),
-                ),
-                (
-                    "model",
-                    estimator,
-                ),
-            ]
-        )
-
-        pipeline.fit(
-            X_train,
-            y_train,
-        )
-
-        predicted = pipeline.predict(
-            X_test,
-        )
-
-        probability = pipeline.predict_proba(
-            X_test,
-        )[:, 1]
-
-        try:
-
-            auc = roc_auc_score(
-                y_test,
-                probability,
-            )
-
-        except ValueError:
-
-            auc = np.nan
-
-        metrics.append(
-            {
-                "Model": name,
-                "Accuracy": accuracy_score(
-                    y_test,
-                    predicted,
-                ),
-                "Precision": precision_score(
-                    y_test,
-                    predicted,
-                    zero_division=0,
-                ),
-                "Recall": recall_score(
-                    y_test,
-                    predicted,
-                    zero_division=0,
-                ),
-                "F1 Score": f1_score(
-                    y_test,
-                    predicted,
-                    zero_division=0,
-                ),
-                "ROC-AUC": auc,
-            }
-        )
-
-        models[name] = pipeline
-        predictions[name] = predicted
-        probabilities[name] = probability
-
-    metrics_df = pd.DataFrame(metrics)
-
-    metrics_df = metrics_df.sort_values(
-        "ROC-AUC",
-        ascending=False,
-        na_position="last",
-    ).reset_index(drop=True)
-
-    return (
-        models,
-        metrics_df,
-        X_test,
-        y_test,
-        predictions,
-        probabilities,
+    normalized = pd.Series(
+        np.nan,
+        index=series.index,
+        dtype="float64",
     )
 
+    normalized[text_values.isin(positive_labels)] = 1
+    normalized[text_values.isin(negative_labels)] = 0
 
-with st.spinner(
-    "Preparing analytics and training comparison models..."
-):
-
-    (
-        trained_models,
-        model_metrics,
-        X_test,
-        y_test,
-        model_predictions,
-        model_probabilities,
-    ) = train_models(
-        X,
-        y,
+    # Handle two-class datasets with unexpected label names.
+    unknown_mask = (
+        text_values.notna()
+        & normalized.isna()
     )
+
+    unknown_values = text_values[unknown_mask].unique()
+
+    if len(unknown_values) == 2:
+        # Treat the first class as negative and the second
+        # as positive in sorted order.
+        sorted_values = sorted(
+            [str(value) for value in unknown_values]
+        )
+
+        normalized[text_values == sorted_values[0]] = 0
+        normalized[text_values == sorted_values[1]] = 1
+
+    return normalized.astype("Int64")
+
+
+clean_data = raw_data.copy()
+
+clean_data[TARGET_COLUMN] = normalize_churn_target(
+    clean_data[TARGET_COLUMN]
+)
+
+clean_data = clean_data.dropna(
+    subset=[TARGET_COLUMN]
+).copy()
+
+clean_data[TARGET_COLUMN] = clean_data[
+    TARGET_COLUMN
+].astype(int)
+
+if clean_data.empty:
+    st.error("No usable target values were found.")
+    st.stop()
+
+if clean_data[TARGET_COLUMN].nunique() < 2:
+    st.error(
+        "The target column must contain both churn and "
+        "non-churn examples to train classification models."
+    )
+    st.stop()
 
 
 # ============================================================
-# 9. DASHBOARD HEADER
+# 9. IDENTIFY COMMON CUSTOMER FEATURES
 # ============================================================
 
-st.markdown(
-    """
-    <div class="dashboard-header">
-        <div class="dashboard-title">
-            Customer Churn Intelligence
-        </div>
-        <div class="dashboard-subtitle">
-            AI-Powered Customer Insights | Predictive Analytics | Retention Intelligence
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
+def find_column(data, candidates):
+    lookup = {
+        str(column).strip().lower(): column
+        for column in data.columns
+    }
+
+    for candidate in candidates:
+        if candidate.lower() in lookup:
+            return lookup[candidate.lower()]
+
+    return None
+
+
+CUSTOMER_ID_COLUMN = find_column(
+    clean_data,
+    [
+        "customerID",
+        "CustomerID",
+        "customer_id",
+        "Customer Id",
+        "ID",
+    ],
+)
+
+CONTRACT_COLUMN = find_column(
+    clean_data,
+    [
+        "Contract",
+        "ContractType",
+        "Contract Type",
+    ],
+)
+
+INTERNET_COLUMN = find_column(
+    clean_data,
+    [
+        "InternetService",
+        "Internet Service",
+        "Internet_Service",
+    ],
+)
+
+TENURE_COLUMN = find_column(
+    clean_data,
+    [
+        "tenure",
+        "Tenure",
+        "CustomerTenure",
+    ],
+)
+
+MONTHLY_CHARGES_COLUMN = find_column(
+    clean_data,
+    [
+        "MonthlyCharges",
+        "Monthly Charges",
+        "Monthly_Charges",
+    ],
+)
+
+TOTAL_CHARGES_COLUMN = find_column(
+    clean_data,
+    [
+        "TotalCharges",
+        "Total Charges",
+        "Total_Charges",
+    ],
 )
 
 
 # ============================================================
-# 10. FILTERS
+# 10. DASHBOARD FILTERS
 # ============================================================
 
-st.markdown(
-    '<div class="section-heading">Dashboard Filters</div>',
-    unsafe_allow_html=True,
-)
+st.subheader("Dashboard Filters")
 
-filtered_df = df.copy()
+# Three equal-width filters; Customer ID search is removed.
+filter_col1, filter_col2, filter_col3 = st.columns(3)
 
-filter1, filter2, filter3, filter4 = st.columns(4)
+filtered_data = clean_data.copy()
 
-with filter1:
 
-    if contract_col:
+# --------------------- Contract Filter ----------------------
 
-        contracts = sorted(
-            df[contract_col].dropna().unique().tolist(),
-            key=str,
+with filter_col1:
+    if CONTRACT_COLUMN:
+        contract_options = sorted(
+            filtered_data[CONTRACT_COLUMN]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
         )
 
         selected_contracts = st.multiselect(
-            "Contract",
-            contracts,
-            default=contracts,
+            "Contract Type",
+            options=contract_options,
+            default=contract_options,
         )
 
-        filtered_df = filtered_df[
-            filtered_df[contract_col].isin(
-                selected_contracts
-            )
+        filtered_data = filtered_data[
+            filtered_data[CONTRACT_COLUMN]
+            .astype(str)
+            .isin(selected_contracts)
         ]
 
+    else:
+        st.caption("Contract type unavailable.")
 
-with filter2:
 
-    if internet_col:
+# --------------------- Internet Service Filter --------------
 
+with filter_col2:
+    if INTERNET_COLUMN:
         internet_options = sorted(
-            df[internet_col].dropna().unique().tolist(),
-            key=str,
+            filtered_data[INTERNET_COLUMN]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
         )
 
         selected_internet = st.multiselect(
             "Internet Service",
-            internet_options,
+            options=internet_options,
             default=internet_options,
         )
 
-        filtered_df = filtered_df[
-            filtered_df[internet_col].isin(
-                selected_internet
-            )
+        filtered_data = filtered_data[
+            filtered_data[INTERNET_COLUMN]
+            .astype(str)
+            .isin(selected_internet)
         ]
 
-
-with filter3:
-
-    if tenure_col:
-
-        tenure_values = pd.to_numeric(
-            df[tenure_col],
-            errors="coerce",
-        ).dropna()
-
-        if not tenure_values.empty:
-
-            low = int(tenure_values.min())
-            high = int(tenure_values.max())
-
-            if low < high:
-
-                tenure_range = st.slider(
-                    "Tenure (Months)",
-                    min_value=low,
-                    max_value=high,
-                    value=(low, high),
-                )
-
-                filtered_df = filtered_df[
-                    pd.to_numeric(
-                        filtered_df[tenure_col],
-                        errors="coerce",
-                    ).between(
-                        tenure_range[0],
-                        tenure_range[1],
-                    )
-                ]
+    else:
+        st.caption("Internet service unavailable.")
 
 
-with filter4:
+# --------------------- Churn Status Filter ------------------
 
-    status_filter = st.selectbox(
-        "Customer Status",
-        [
+with filter_col3:
+    churn_filter = st.selectbox(
+        "Churn Status",
+        options=[
             "All Customers",
             "Churned",
             "Retained",
         ],
     )
 
-    if status_filter == "Churned":
-
-        filtered_df = filtered_df[
-            filtered_df[churn_col] == 1
+    if churn_filter == "Churned":
+        filtered_data = filtered_data[
+            filtered_data[TARGET_COLUMN] == 1
         ]
 
-    elif status_filter == "Retained":
-
-        filtered_df = filtered_df[
-            filtered_df[churn_col] == 0
+    elif churn_filter == "Retained":
+        filtered_data = filtered_data[
+            filtered_data[TARGET_COLUMN] == 0
         ]
 
 
-if filtered_df.empty:
+# --------------------- Empty Filter Validation ---------------
 
+if filtered_data.empty:
     st.warning(
-        "No customers match these filters. "
-        "Please change your selection."
+        "No customers match the selected filters. "
+        "Change the filters to see the dashboard."
     )
+    st.stop()
+
+# ============================================================
+# 11. KPI CARDS
+# ============================================================
+
+st.markdown("---")
+st.subheader("Customer Overview")
+
+total_customers = len(filtered_data)
+
+churned_customers = int(
+    (filtered_data[TARGET_COLUMN] == 1).sum()
+)
+
+retained_customers = int(
+    (filtered_data[TARGET_COLUMN] == 0).sum()
+)
+
+churn_rate = (
+    churned_customers / total_customers * 100
+    if total_customers
+    else 0
+)
+
+retention_rate = (
+    retained_customers / total_customers * 100
+    if total_customers
+    else 0
+)
+
+if MONTHLY_CHARGES_COLUMN:
+    average_monthly_charges = pd.to_numeric(
+        filtered_data[MONTHLY_CHARGES_COLUMN],
+        errors="coerce",
+    ).mean()
+else:
+    average_monthly_charges = np.nan
+
+
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+
+kpi1.metric(
+    "Total Customers",
+    f"{total_customers:,}",
+)
+
+kpi2.metric(
+    "Churned Customers",
+    f"{churned_customers:,}",
+)
+
+kpi3.metric(
+    "Churn Rate",
+    f"{churn_rate:.2f}%",
+)
+
+kpi4.metric(
+    "Retention Rate",
+    f"{retention_rate:.2f}%",
+)
+
+kpi5.metric(
+    "Avg. Monthly Charges",
+    (
+        f"${average_monthly_charges:,.2f}"
+        if pd.notna(average_monthly_charges)
+        else "N/A"
+    ),
+)
+
+
+# ============================================================
+# 12. CHURN ANALYTICS
+# ============================================================
+
+st.markdown("---")
+st.subheader("Churn Analytics")
+
+analytics_col1, analytics_col2, analytics_col3 = st.columns(3)
+
+
+# --------------------- Churn Distribution -------------------
+
+with analytics_col1:
+    st.markdown("**Churn Distribution**")
+
+    churn_counts = (
+        filtered_data[TARGET_COLUMN]
+        .map({
+            1: "Churned",
+            0: "Retained",
+        })
+        .value_counts()
+        .reindex(["Churned", "Retained"], fill_value=0)
+        .reset_index()
+    )
+
+    churn_counts.columns = [
+        "Churn Status",
+        "Customers",
+    ]
+
+    fig_churn = px.pie(
+        churn_counts,
+        names="Churn Status",
+        values="Customers",
+        hole=0.45,
+        color="Churn Status",
+        color_discrete_map=CHURN_COLORS,
+    )
+
+    fig_churn.update_traces(
+        textposition="inside",
+        textinfo="percent+label",
+    )
+
+    fig_churn.update_layout(
+        height=350,
+        margin=dict(l=10, r=10, t=20, b=10),
+        legend_title_text="",
+    )
+
+    st.plotly_chart(
+        fig_churn,
+        use_container_width=True,
+    )
+
+
+# --------------------- Contract Distribution ----------------
+
+with analytics_col2:
+    st.markdown("**Customers by Contract**")
+
+    if CONTRACT_COLUMN:
+        contract_counts = (
+            filtered_data[CONTRACT_COLUMN]
+            .fillna("Unknown")
+            .astype(str)
+            .value_counts()
+            .rename_axis("Contract")
+            .reset_index(name="Customers")
+        )
+
+        fig_contract = px.bar(
+            contract_counts,
+            x="Contract",
+            y="Customers",
+            color="Contract",
+            color_discrete_sequence=CHART_PALETTE,
+            text="Customers",
+        )
+
+        fig_contract.update_traces(
+            textposition="outside",
+        )
+
+        fig_contract.update_layout(
+            height=350,
+            showlegend=False,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Contract Type",
+            yaxis_title="Number of Customers",
+        )
+
+        st.plotly_chart(
+            fig_contract,
+            use_container_width=True,
+        )
+
+    else:
+        st.info("Contract data is unavailable.")
+
+
+# --------------------- Internet Service ---------------------
+
+with analytics_col3:
+    st.markdown("**Churn by Internet Service**")
+
+    if INTERNET_COLUMN:
+        internet_churn = filtered_data.copy()
+
+        internet_churn["Churn Status"] = (
+            internet_churn[TARGET_COLUMN]
+            .map({
+                1: "Churned",
+                0: "Retained",
+            })
+        )
+
+        internet_counts = (
+            internet_churn.groupby(
+                [INTERNET_COLUMN, "Churn Status"],
+                dropna=False,
+            )
+            .size()
+            .reset_index(name="Customers")
+        )
+
+        internet_counts[INTERNET_COLUMN] = (
+            internet_counts[INTERNET_COLUMN]
+            .fillna("Unknown")
+            .astype(str)
+        )
+
+        fig_internet = px.bar(
+            internet_counts,
+            x=INTERNET_COLUMN,
+            y="Customers",
+            color="Churn Status",
+            barmode="group",
+            color_discrete_map=CHURN_COLORS,
+        )
+
+        fig_internet.update_layout(
+            height=350,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Internet Service",
+            yaxis_title="Number of Customers",
+            legend_title_text="",
+        )
+
+        st.plotly_chart(
+            fig_internet,
+            use_container_width=True,
+        )
+
+    else:
+        st.info("Internet service data is unavailable.")
+
+
+# ============================================================
+# 13. CUSTOMER BEHAVIOUR
+# ============================================================
+
+st.markdown("---")
+st.subheader("Customer Behaviour")
+
+behaviour_col1, behaviour_col2 = st.columns(2)
+
+
+# --------------------- Tenure Distribution ------------------
+
+with behaviour_col1:
+    st.markdown("**Customer Tenure Distribution**")
+
+    if TENURE_COLUMN:
+        tenure_data = filtered_data.copy()
+
+        tenure_data[TENURE_COLUMN] = pd.to_numeric(
+            tenure_data[TENURE_COLUMN],
+            errors="coerce",
+        )
+
+        tenure_data = tenure_data.dropna(
+            subset=[TENURE_COLUMN]
+        )
+
+        tenure_data["Churn Status"] = (
+            tenure_data[TARGET_COLUMN]
+            .map({
+                1: "Churned",
+                0: "Retained",
+            })
+        )
+
+        fig_tenure = px.histogram(
+            tenure_data,
+            x=TENURE_COLUMN,
+            color="Churn Status",
+            nbins=25,
+            barmode="overlay",
+            opacity=0.75,
+            color_discrete_map=CHURN_COLORS,
+        )
+
+        fig_tenure.update_layout(
+            height=400,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Tenure",
+            yaxis_title="Number of Customers",
+            legend_title_text="",
+        )
+
+        st.plotly_chart(
+            fig_tenure,
+            use_container_width=True,
+        )
+
+    else:
+        st.info("Tenure data is unavailable.")
+
+
+# --------------------- Monthly Charges ----------------------
+
+with behaviour_col2:
+    st.markdown("**Monthly Charges by Churn Status**")
+
+    if MONTHLY_CHARGES_COLUMN:
+        charges_data = filtered_data.copy()
+
+        charges_data[MONTHLY_CHARGES_COLUMN] = pd.to_numeric(
+            charges_data[MONTHLY_CHARGES_COLUMN],
+            errors="coerce",
+        )
+
+        charges_data["Churn Status"] = (
+            charges_data[TARGET_COLUMN]
+            .map({
+                1: "Churned",
+                0: "Retained",
+            })
+        )
+
+        charges_data = charges_data.dropna(
+            subset=[MONTHLY_CHARGES_COLUMN]
+        )
+
+        fig_charges = px.box(
+            charges_data,
+            x="Churn Status",
+            y=MONTHLY_CHARGES_COLUMN,
+            color="Churn Status",
+            color_discrete_map=CHURN_COLORS,
+            points="outliers",
+        )
+
+        fig_charges.update_layout(
+            height=400,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Churn Status",
+            yaxis_title="Monthly Charges",
+            legend_title_text="",
+        )
+
+        fig_charges.update_layout(
+            showlegend=False,
+        )
+
+        st.plotly_chart(
+            fig_charges,
+            use_container_width=True,
+        )
+
+    else:
+        st.info("Monthly charges data is unavailable.")
+
+
+# ============================================================
+# 14. CUSTOMER SEGMENTATION
+# ============================================================
+
+st.markdown("---")
+st.subheader("Customer Segmentation")
+
+preferred_features = [
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "PhoneService",
+    "MultipleLines",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "PaymentMethod",
+    "PaperlessBilling",
+    "Contract",
+    "InternetService",
+    "gender",
+    "Payment Method",
+]
+
+segmentation_features = []
+
+for feature in preferred_features:
+    actual_column = find_column(
+        filtered_data,
+        [feature],
+    )
+
+    if actual_column and actual_column != TARGET_COLUMN:
+        if actual_column not in segmentation_features:
+            segmentation_features.append(actual_column)
+
+# Include other categorical columns if fewer than four
+# useful segmentation features were found.
+for column in filtered_data.columns:
+    if column == TARGET_COLUMN:
+        continue
+
+    if column == CUSTOMER_ID_COLUMN:
+        continue
+
+    if column in segmentation_features:
+        continue
+
+    if (
+        filtered_data[column].dtype == "object"
+        or str(filtered_data[column].dtype) == "category"
+        or filtered_data[column].nunique(dropna=True) <= 10
+    ):
+        if filtered_data[column].nunique(dropna=True) <= 10:
+            segmentation_features.append(column)
+
+    if len(segmentation_features) >= 4:
+        break
+
+segmentation_features = segmentation_features[:4]
+
+if segmentation_features:
+    segmentation_col1, segmentation_col2 = st.columns(2)
+
+    for index, feature in enumerate(segmentation_features):
+        target_col = (
+            segmentation_col1
+            if index % 2 == 0
+            else segmentation_col2
+        )
+
+        with target_col:
+            st.markdown(f"**Churn by {feature}**")
+
+            segment_data = filtered_data.copy()
+
+            segment_data[feature] = (
+                segment_data[feature]
+                .fillna("Unknown")
+                .astype(str)
+            )
+
+            segment_data["Churn Status"] = (
+                segment_data[TARGET_COLUMN]
+                .map({
+                    1: "Churned",
+                    0: "Retained",
+                })
+            )
+
+            segment_counts = (
+                segment_data.groupby(
+                    [feature, "Churn Status"],
+                    dropna=False,
+                )
+                .size()
+                .reset_index(name="Customers")
+            )
+
+            fig_segment = px.bar(
+                segment_counts,
+                x=feature,
+                y="Customers",
+                color="Churn Status",
+                barmode="group",
+                color_discrete_map=CHURN_COLORS,
+            )
+
+            fig_segment.update_layout(
+                height=350,
+                margin=dict(l=10, r=10, t=20, b=10),
+                xaxis_title=feature,
+                yaxis_title="Number of Customers",
+                legend_title_text="",
+            )
+
+            st.plotly_chart(
+                fig_segment,
+                use_container_width=True,
+            )
+
+else:
+    st.info(
+        "No suitable categorical columns were found "
+        "for customer segmentation."
+    )
+
+
+# ============================================================
+# 15. PREPARE DATA FOR MACHINE LEARNING
+# ============================================================
+
+st.markdown("---")
+st.subheader("Machine Learning Model Performance")
+
+model_data = clean_data.copy()
+
+# Exclude the customer identifier and target from features.
+excluded_columns = [TARGET_COLUMN]
+
+if CUSTOMER_ID_COLUMN:
+    excluded_columns.append(CUSTOMER_ID_COLUMN)
+
+X = model_data.drop(
+    columns=excluded_columns,
+    errors="ignore",
+).copy()
+
+y = model_data[TARGET_COLUMN].astype(int).copy()
+
+# Remove completely empty feature columns.
+X = X.dropna(
+    axis=1,
+    how="all",
+)
+
+# Convert numeric-looking text columns into numeric columns.
+for column in X.columns:
+    if X[column].dtype == "object":
+        converted = pd.to_numeric(
+            X[column],
+            errors="coerce",
+        )
+
+        original_non_missing = X[column].notna().sum()
+        converted_non_missing = converted.notna().sum()
+
+        if (
+            original_non_missing > 0
+            and converted_non_missing / original_non_missing >= 0.90
+        ):
+            X[column] = converted
+
+# Remove rows where the target or features are not usable.
+valid_target_mask = y.notna()
+
+X = X.loc[valid_target_mask].copy()
+y = y.loc[valid_target_mask].copy()
+
+if len(X) < 10:
+    st.error(
+        "There are too few usable records to train and "
+        "evaluate the classification models."
+    )
+    st.stop()
+
+if y.nunique() < 2:
+    st.error(
+        "The target must contain both churn classes."
+    )
+    st.stop()
+
+# Remove constant columns.
+constant_columns = [
+    column
+    for column in X.columns
+    if X[column].nunique(dropna=True) <= 1
+]
+
+if constant_columns:
+    X = X.drop(
+        columns=constant_columns,
+    )
+
+if X.shape[1] == 0:
+    st.error(
+        "No usable feature columns remain after cleaning."
+    )
+    st.stop()
+
+numeric_features = X.select_dtypes(
+    include=["number", "bool"],
+).columns.tolist()
+
+categorical_features = [
+    column
+    for column in X.columns
+    if column not in numeric_features
+]
+
+# Make categorical data consistent for encoding.
+for column in categorical_features:
+    X[column] = X[column].astype("object")
+
+
+# ============================================================
+# 16. PREPROCESSING PIPELINE
+# ============================================================
+
+numeric_pipeline = Pipeline(
+    steps=[
+        (
+            "imputer",
+            SimpleImputer(
+                strategy="median",
+            ),
+        ),
+        (
+            "scaler",
+            StandardScaler(),
+        ),
+    ]
+)
+
+categorical_pipeline = Pipeline(
+    steps=[
+        (
+            "imputer",
+            SimpleImputer(
+                strategy="most_frequent",
+            ),
+        ),
+        (
+            "encoder",
+            OneHotEncoder(
+                handle_unknown="ignore",
+                sparse_output=True,
+            ),
+        ),
+    ]
+)
+
+transformers = []
+
+if numeric_features:
+    transformers.append(
+        (
+            "numeric",
+            numeric_pipeline,
+            numeric_features,
+        )
+    )
+
+if categorical_features:
+    transformers.append(
+        (
+            "categorical",
+            categorical_pipeline,
+            categorical_features,
+        )
+    )
+
+preprocessor = ColumnTransformer(
+    transformers=transformers,
+    remainder="drop",
+)
+
+
+# ============================================================
+# 17. TRAIN AND COMPARE CLASSIFICATION MODELS
+# ============================================================
+
+test_fraction = 0.20
+
+class_counts = y.value_counts()
+
+can_stratify = (
+    y.nunique() == 2
+    and class_counts.min() >= 2
+)
+
+try:
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_fraction,
+        random_state=42,
+        stratify=y if can_stratify else None,
+    )
+
+except ValueError:
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=test_fraction,
+        random_state=42,
+        stratify=None,
+    )
+
+
+if y_train.nunique() < 2 or y_test.nunique() < 2:
+    st.error(
+        "The training or testing split contains only one class. "
+        "More examples of each churn class are required."
+    )
+    st.stop()
+
+
+models = {
+    "Logistic Regression": LogisticRegression(
+        max_iter=2000,
+        class_weight="balanced",
+        random_state=42,
+    ),
+
+    "Decision Tree": DecisionTreeClassifier(
+        max_depth=8,
+        class_weight="balanced",
+        random_state=42,
+    ),
+
+    "Random Forest": RandomForestClassifier(
+        n_estimators=150,
+        max_depth=None,
+        min_samples_split=4,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1,
+    ),
+
+    "Gradient Boosting": GradientBoostingClassifier(
+        n_estimators=100,
+        learning_rate=0.05,
+        max_depth=3,
+        random_state=42,
+    ),
+}
+
+
+@st.cache_resource(show_spinner="Training and evaluating models...")
+def train_models(
+    X_train,
+    X_test,
+    y_train,
+    y_test,
+    model_data_signature,
+):
+    """
+    Fit the preprocessing pipeline and each model.
+    Store metrics, predictions, probabilities, and fitted pipelines.
+    """
+
+    del model_data_signature
+
+    fitted_models = {}
+    metrics_records = {}
+    predictions = {}
+    probabilities = {}
+    errors = {}
+
+    local_models = {
+        "Logistic Regression": LogisticRegression(
+            max_iter=2000,
+            class_weight="balanced",
+            random_state=42,
+        ),
+        "Decision Tree": DecisionTreeClassifier(
+            max_depth=8,
+            class_weight="balanced",
+            random_state=42,
+        ),
+        "Random Forest": RandomForestClassifier(
+            n_estimators=150,
+            max_depth=None,
+            min_samples_split=4,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1,
+        ),
+        "Gradient Boosting": GradientBoostingClassifier(
+            n_estimators=100,
+            learning_rate=0.05,
+            max_depth=3,
+            random_state=42,
+        ),
+    }
+
+    for model_name, classifier in local_models.items():
+        try:
+            pipeline = Pipeline(
+                steps=[
+                    (
+                        "preprocessor",
+                        preprocessor,
+                    ),
+                    (
+                        "classifier",
+                        classifier,
+                    ),
+                ]
+            )
+
+            pipeline.fit(
+                X_train,
+                y_train,
+            )
+
+            y_pred = pipeline.predict(X_test)
+
+            if hasattr(pipeline, "predict_proba"):
+                y_prob = pipeline.predict_proba(X_test)[:, 1]
+
+            elif hasattr(pipeline, "decision_function"):
+                decision_scores = pipeline.decision_function(X_test)
+
+                y_prob = (
+                    decision_scores - decision_scores.min()
+                ) / (
+                    decision_scores.max()
+                    - decision_scores.min()
+                    + 1e-9
+                )
+
+            else:
+                y_prob = y_pred.astype(float)
+
+            metrics = {
+                "Accuracy": accuracy_score(
+                    y_test,
+                    y_pred,
+                ),
+
+                "Precision": precision_score(
+                    y_test,
+                    y_pred,
+                    zero_division=0,
+                ),
+
+                "Recall": recall_score(
+                    y_test,
+                    y_pred,
+                    zero_division=0,
+                ),
+
+                "F1 Score": f1_score(
+                    y_test,
+                    y_pred,
+                    zero_division=0,
+                ),
+            }
+
+            try:
+                metrics["ROC-AUC"] = roc_auc_score(
+                    y_test,
+                    y_prob,
+                )
+
+            except ValueError:
+                metrics["ROC-AUC"] = np.nan
+
+            fitted_models[model_name] = pipeline
+            metrics_records[model_name] = metrics
+            predictions[model_name] = y_pred
+            probabilities[model_name] = y_prob
+
+        except Exception as error:
+            errors[model_name] = str(error)
+
+    return (
+        fitted_models,
+        metrics_records,
+        predictions,
+        probabilities,
+        errors,
+    )
+
+
+model_signature = (
+    len(X),
+    len(X.columns),
+    tuple(X.columns),
+    tuple(y.value_counts().sort_index().items()),
+    str(DATA_PATH),
+    DATA_PATH.stat().st_mtime,
+)
+
+(
+    fitted_models,
+    model_metrics,
+    model_predictions,
+    model_probabilities,
+    model_errors,
+) = train_models(
+    X_train,
+    X_test,
+    y_train,
+    y_test,
+    model_signature,
+)
+
+
+if not model_metrics:
+    st.error(
+        "None of the models could be trained successfully."
+    )
+
+    for model_name, error_message in model_errors.items():
+        st.write(f"**{model_name}:** {error_message}")
 
     st.stop()
 
 
 # ============================================================
-# 11. BUSINESS OVERVIEW KPI CARDS
+# 18. MODEL METRICS TABLE
 # ============================================================
 
-st.markdown(
-    '<div class="section-heading">Business Overview</div>',
-    unsafe_allow_html=True,
+metrics_df = pd.DataFrame.from_dict(
+    model_metrics,
+    orient="index",
 )
 
-total_customers = len(filtered_df)
+metrics_df.index.name = "Model"
 
-churned_customers = int(
-    (filtered_df[churn_col] == 1).sum()
-)
+metrics_df = metrics_df.reset_index()
 
-retained_customers = int(
-    (filtered_df[churn_col] == 0).sum()
-)
-
-churn_rate = (
-    churned_customers / total_customers * 100
-)
-
-retention_rate = (
-    retained_customers / total_customers * 100
-)
-
-average_charges = (
-    pd.to_numeric(
-        filtered_df[monthly_col],
-        errors="coerce",
-    ).mean()
-    if monthly_col
-    else np.nan
-)
-
-k1, k2, k3, k4, k5 = st.columns(5)
-
-with k1:
-    st.metric(
-        "Total Customers",
-        f"{total_customers:,}",
-    )
-
-with k2:
-    st.metric(
-        "Churn Rate",
-        f"{churn_rate:.2f}%",
-    )
-
-with k3:
-    st.metric(
-        "Churned Customers",
-        f"{churned_customers:,}",
-    )
-
-with k4:
-    st.metric(
-        "Retention Rate",
-        f"{retention_rate:.2f}%",
-    )
-
-with k5:
-    st.metric(
-        "Avg. Monthly Charges",
-        format_currency(average_charges),
-    )
-
-
-# ============================================================
-# 12. CUSTOMER PREDICTION SECTION
-# ============================================================
-
-st.markdown("---")
-
-st.markdown(
-    '<div class="section-heading">Customer Churn Prediction</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="section-subtitle">
-        Enter customer information to estimate churn probability.
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-def match_feature(feature_columns, aliases):
-
-    normalized = {
-        normalize_name(column): column
-        for column in feature_columns
-    }
-
-    for alias in aliases:
-
-        key = normalize_name(alias)
-
-        if key in normalized:
-            return normalized[key]
-
-    return None
-
-
-def make_prediction_row(
-    feature_columns,
-    gender,
-    senior,
-    partner,
-    dependents,
-    tenure,
-    phone,
-    multiple_lines,
-    internet,
-    security,
-    backup,
-    device,
-    support,
-    streaming_tv,
-    streaming_movies,
-    contract,
-    paperless,
-    payment,
-    monthly_charges,
-):
-
-    row = pd.DataFrame(
-        [
-            {
-                column: 0
-                for column in feature_columns
-            }
-        ]
-    ).astype(float)
-
-    medians = X.median(
-        numeric_only=True,
-    )
-
-    # Set sensible defaults for remaining features.
-
-    for column in feature_columns:
-
-        if column in medians.index:
-            row.loc[0, column] = medians[column]
-
-    def set_value(aliases, value):
-
-        column = match_feature(
-            feature_columns,
-            aliases,
-        )
-
-        if column is not None:
-            row.loc[0, column] = value
-
-    # Demographics
-
-    set_value(
-        ["gender", "Gender"],
-        1 if gender == "Female" else 0,
-    )
-
-    set_value(
-        ["SeniorCitizen"],
-        1 if senior == "Yes" else 0,
-    )
-
-    set_value(
-        ["Partner"],
-        1 if partner == "Yes" else 0,
-    )
-
-    set_value(
-        ["Dependents"],
-        1 if dependents == "Yes" else 0,
-    )
-
-    # Tenure and charges
-
-    set_value(
-        ["tenure", "Tenure"],
-        tenure,
-    )
-
-    set_value(
-        ["MonthlyCharges", "Monthly Charges"],
-        monthly_charges,
-    )
-
-    set_value(
-        ["TotalCharges", "Total Charges"],
-        monthly_charges * tenure,
-    )
-
-    # Services
-
-    set_value(
-        ["PhoneService"],
-        1 if phone == "Yes" else 0,
-    )
-
-    set_value(
-        ["MultipleLines"],
-        1 if multiple_lines == "Yes" else 0,
-    )
-
-    set_value(
-        ["PaperlessBilling"],
-        1 if paperless == "Yes" else 0,
-    )
-
-    set_value(
-        ["OnlineSecurity"],
-        1 if security == "Yes" else 0,
-    )
-
-    set_value(
-        ["OnlineBackup"],
-        1 if backup == "Yes" else 0,
-    )
-
-    set_value(
-        ["DeviceProtection"],
-        1 if device == "Yes" else 0,
-    )
-
-    set_value(
-        ["TechSupport"],
-        1 if support == "Yes" else 0,
-    )
-
-    set_value(
-        ["StreamingTV"],
-        1 if streaming_tv == "Yes" else 0,
-    )
-
-    set_value(
-        ["StreamingMovies"],
-        1 if streaming_movies == "Yes" else 0,
-    )
-
-    # Existing preprocessing encodes InternetService:
-    # No = 0, DSL = 1, Fiber optic = 2.
-
-    set_value(
-        ["InternetService", "Internet Service"],
-        {
-            "No": 0,
-            "DSL": 1,
-            "Fiber optic": 2,
-        }[internet],
-    )
-
-    # Existing preprocessing encodes Contract:
-    # Month-to-month = 0, One year = 1, Two year = 2.
-
-    set_value(
-        ["Contract"],
-        {
-            "Month-to-month": 0,
-            "One year": 1,
-            "Two year": 2,
-        }[contract],
-    )
-
-    # Payment-method one-hot columns.
-
-    for column in feature_columns:
-
-        normalized = normalize_name(column)
-
-        if normalized.startswith("paymentmethod"):
-
-            row.loc[0, column] = 0
-
-    payment_candidates = [
-        f"PaymentMethod_{payment}",
-        f"Payment Method_{payment}",
-    ]
-
-    for candidate in payment_candidates:
-
-        column = match_feature(
-            feature_columns,
-            [candidate],
-        )
-
-        if column is not None:
-            row.loc[0, column] = 1
-
-    return row.reindex(
-        columns=feature_columns,
-        fill_value=0,
-    )
-
-
-# Compact prediction form
-
-with st.form("prediction_form"):
-
-    p1, p2, p3, p4 = st.columns(4)
-
-    with p1:
-
-        gender = st.selectbox(
-            "Gender",
-            ["Female", "Male"],
-        )
-
-        senior = st.selectbox(
-            "Senior Citizen",
-            ["No", "Yes"],
-        )
-
-        partner = st.selectbox(
-            "Partner",
-            ["Yes", "No"],
-        )
-
-        dependents = st.selectbox(
-            "Dependents",
-            ["Yes", "No"],
-        )
-
-        tenure = st.slider(
-            "Tenure (Months)",
-            0,
-            72,
-            12,
-        )
-
-    with p2:
-
-        phone = st.selectbox(
-            "Phone Service",
-            ["Yes", "No"],
-        )
-
-        multiple_lines = st.selectbox(
-            "Multiple Lines",
-            ["No", "Yes"],
-        )
-
-        internet = st.selectbox(
-            "Internet Service",
-            ["DSL", "Fiber optic", "No"],
-        )
-
-        security = st.selectbox(
-            "Online Security",
-            ["No", "Yes"],
-        )
-
-        backup = st.selectbox(
-            "Online Backup",
-            ["No", "Yes"],
-        )
-
-    with p3:
-
-        device = st.selectbox(
-            "Device Protection",
-            ["No", "Yes"],
-        )
-
-        support = st.selectbox(
-            "Tech Support",
-            ["No", "Yes"],
-        )
-
-        streaming_tv = st.selectbox(
-            "Streaming TV",
-            ["No", "Yes"],
-        )
-
-        streaming_movies = st.selectbox(
-            "Streaming Movies",
-            ["No", "Yes"],
-        )
-
-        contract = st.selectbox(
-            "Contract",
-            [
-                "Month-to-month",
-                "One year",
-                "Two year",
-            ],
-        )
-
-    with p4:
-
-        paperless = st.selectbox(
-            "Paperless Billing",
-            ["Yes", "No"],
-        )
-
-        payment = st.selectbox(
-            "Payment Method",
-            [
-                "Electronic check",
-                "Mailed check",
-                "Bank transfer (automatic)",
-                "Credit card (automatic)",
-            ],
-        )
-
-        monthly_charges = st.number_input(
-            "Monthly Charges",
-            min_value=0.0,
-            max_value=1000.0,
-            value=70.0,
-            step=5.0,
-        )
-
-        prediction_model = st.selectbox(
-            "Prediction Model",
-            list(trained_models.keys()),
-            index=list(trained_models.keys()).index(
-                model_metrics.iloc[0]["Model"]
-            ),
-        )
-
-    predict_button = st.form_submit_button(
-        "Predict Customer Churn",
-        type="primary",
-        use_container_width=True,
-    )
-
-
-if predict_button:
-
-    customer_row = make_prediction_row(
-        feature_columns=X.columns.tolist(),
-        gender=gender,
-        senior=senior,
-        partner=partner,
-        dependents=dependents,
-        tenure=tenure,
-        phone=phone,
-        multiple_lines=multiple_lines,
-        internet=internet,
-        security=security,
-        backup=backup,
-        device=device,
-        support=support,
-        streaming_tv=streaming_tv,
-        streaming_movies=streaming_movies,
-        contract=contract,
-        paperless=paperless,
-        payment=payment,
-        monthly_charges=monthly_charges,
-    )
-
-    selected_model = trained_models[
-        prediction_model
-    ]
-
-    prediction = int(
-        selected_model.predict(
-            customer_row
-        )[0]
-    )
-
-    probabilities = selected_model.predict_proba(
-        customer_row
-    )[0]
-
-    churn_probability = float(
-        probabilities[1]
-    )
-
-    retention_probability = float(
-        probabilities[0]
-    )
-
-    st.markdown("#### Prediction Result")
-
-    r1, r2, r3 = st.columns(3)
-
-    with r1:
-
-        st.metric(
-            "Selected Model",
-            prediction_model,
-        )
-
-    with r2:
-
-        st.metric(
-            "Churn Probability",
-            f"{churn_probability:.2%}",
-        )
-
-    with r3:
-
-        st.metric(
-            "Retention Probability",
-            f"{retention_probability:.2%}",
-        )
-
-    result_fig = go.Figure()
-
-    result_fig.add_trace(
-        go.Bar(
-            x=["Retained", "Churned"],
-            y=[
-                retention_probability * 100,
-                churn_probability * 100,
-            ],
-            text=[
-                f"{retention_probability:.1%}",
-                f"{churn_probability:.1%}",
-            ],
-            textposition="outside",
-            marker_color=[
-                "#4D9A91",
-                "#D97878",
-            ],
-        )
-    )
-
-    result_fig.update_layout(
-        title="Predicted Customer Outcome",
-        yaxis_title="Probability (%)",
-        yaxis=dict(
-            range=[0, 110],
-        ),
-        showlegend=False,
-    )
-
-    st.plotly_chart(
-        make_chart(
-            result_fig,
-            height=240,
-        ),
-        use_container_width=True,
-    )
-
-    if prediction == 1:
-
-        st.error(
-            "The selected model predicts that this customer "
-            "may churn. Consider reviewing customer satisfaction, "
-            "service issues, pricing, and contract options."
-        )
-
-    else:
-
-        st.success(
-            "The selected model predicts that this customer "
-            "may be retained. Continue monitoring satisfaction "
-            "and service usage."
-        )
-
-    st.caption(
-        "This is a model-based estimate, not a guarantee. "
-        "Check that the form's feature encoding matches "
-        "the preprocessing used during training."
-    )
-
-    prediction_export = customer_row.copy()
-
-    prediction_export["Selected_Model"] = prediction_model
-
-    prediction_export["Predicted_Churn"] = prediction
-
-    prediction_export["Churn_Probability"] = churn_probability
-
-    st.download_button(
-        "Download Prediction",
-        data=prediction_export.to_csv(
-            index=False,
-        ).encode("utf-8"),
-        file_name="customer_prediction.csv",
-        mime="text/csv",
-    )
-
-
-# ============================================================
-# 13. ANALYTICS CHARTS
-# ============================================================
-
-st.markdown("---")
-
-st.markdown(
-    '<div class="section-heading">Customer Analytics</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="section-subtitle">'
-    'Explore churn patterns and customer behaviour.'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-
-# Chart 1: Churn distribution
-
-chart1, chart2 = st.columns(2)
-
-with chart1:
-
-    st.markdown("#### Customer Retention Distribution")
-
-    counts = (
-        filtered_df[churn_col]
-        .map({
-            0: "Retained",
-            1: "Churned",
-        })
-        .value_counts()
-        .reindex(
-            ["Retained", "Churned"],
-            fill_value=0,
-        )
-        .reset_index()
-    )
-
-    counts.columns = [
-        "Status",
-        "Customers",
-    ]
-
-    fig = px.pie(
-        counts,
-        names="Status",
-        values="Customers",
-        hole=0.62,
-        color="Status",
-        color_discrete_map={
-            "Retained": "#4D9A91",
-            "Churned": "#D97878",
-        },
-    )
-
-    fig.update_traces(
-        textposition="inside",
-        textinfo="percent+label",
-    )
-
-    st.plotly_chart(
-        make_chart(fig),
-        use_container_width=True,
-    )
-
-
-# Chart 2: Customer status
-
-with chart2:
-
-    st.markdown("#### Customer Status")
-
-    fig = px.bar(
-        counts,
-        x="Status",
-        y="Customers",
-        color="Status",
-        text="Customers",
-        color_discrete_map={
-            "Retained": "#4D9A91",
-            "Churned": "#D97878",
-        },
-    )
-
-    fig.update_traces(
-        textposition="outside",
-    )
-
-    st.plotly_chart(
-        make_chart(fig),
-        use_container_width=True,
-    )
-
-
-# Chart 3: Contract
-
-chart3, chart4 = st.columns(2)
-
-with chart3:
-
-    st.markdown("#### Churn by Contract")
-
-    if contract_col:
-
-        contract_summary = (
-            filtered_df
-            .groupby(
-                [
-                    contract_col,
-                    churn_col,
-                ],
-                dropna=False,
-            )
-            .size()
-            .reset_index(name="Customers")
-        )
-
-        contract_summary["Status"] = (
-            contract_summary[churn_col]
-            .map({
-                0: "Retained",
-                1: "Churned",
-            })
-        )
-
-        fig = px.bar(
-            contract_summary,
-            x=contract_col,
-            y="Customers",
-            color="Status",
-            barmode="group",
-            color_discrete_map={
-                "Retained": "#4D9A91",
-                "Churned": "#D97878",
-            },
-            labels={
-                contract_col: "Contract",
-            },
-        )
-
-        st.plotly_chart(
-            make_chart(fig),
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info("Contract column is unavailable.")
-
-
-# Chart 4: Internet service
-
-with chart4:
-
-    st.markdown("#### Churn by Internet Service")
-
-    if internet_col:
-
-        internet_summary = (
-            filtered_df
-            .groupby(
-                [
-                    internet_col,
-                    churn_col,
-                ],
-                dropna=False,
-            )
-            .size()
-            .reset_index(name="Customers")
-        )
-
-        internet_summary["Status"] = (
-            internet_summary[churn_col]
-            .map({
-                0: "Retained",
-                1: "Churned",
-            })
-        )
-
-        fig = px.bar(
-            internet_summary,
-            x=internet_col,
-            y="Customers",
-            color="Status",
-            barmode="group",
-            color_discrete_map={
-                "Retained": "#4D9A91",
-                "Churned": "#D97878",
-            },
-        )
-
-        st.plotly_chart(
-            make_chart(fig),
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info("Internet service column is unavailable.")
-
-
-# Chart 5: Tenure
-
-chart5, chart6 = st.columns(2)
-
-with chart5:
-
-    st.markdown("#### Customer Tenure Distribution")
-
-    if tenure_col:
-
-        tenure_data = filtered_df.copy()
-
-        tenure_data["Status"] = (
-            tenure_data[churn_col]
-            .map({
-                0: "Retained",
-                1: "Churned",
-            })
-        )
-
-        fig = px.histogram(
-            tenure_data,
-            x=tenure_col,
-            color="Status",
-            nbins=25,
-            barmode="overlay",
-            opacity=0.75,
-            color_discrete_map={
-                "Retained": "#4D9A91",
-                "Churned": "#D97878",
-            },
-        )
-
-        st.plotly_chart(
-            make_chart(fig),
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info("Tenure column is unavailable.")
-
-
-# Chart 6: Monthly charges
-
-with chart6:
-
-    st.markdown("#### Monthly Charges by Churn")
-
-    if monthly_col:
-
-        charges_data = filtered_df.copy()
-
-        charges_data["Status"] = (
-            charges_data[churn_col]
-            .map({
-                0: "Retained",
-                1: "Churned",
-            })
-        )
-
-        fig = px.box(
-            charges_data,
-            x="Status",
-            y=monthly_col,
-            color="Status",
-            color_discrete_map={
-                "Retained": "#4D9A91",
-                "Churned": "#D97878",
-            },
-            points=False,
-        )
-
-        st.plotly_chart(
-            make_chart(fig),
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info("Monthly charges column is unavailable.")
-
-
-# Chart 7: Total charges
-
-if total_col:
-
-    st.markdown("#### Total Charges Distribution")
-
-    total_data = filtered_df.copy()
-
-    total_data[total_col] = pd.to_numeric(
-        total_data[total_col],
-        errors="coerce",
-    )
-
-    total_data["Status"] = (
-        total_data[churn_col]
-        .map({
-            0: "Retained",
-            1: "Churned",
-        })
-    )
-
-    total_data = total_data.dropna(
-        subset=[total_col],
-    )
-
-    if not total_data.empty:
-
-        fig = px.histogram(
-            total_data,
-            x=total_col,
-            color="Status",
-            nbins=30,
-            barmode="overlay",
-            opacity=0.7,
-            color_discrete_map={
-                "Retained": "#4D9A91",
-                "Churned": "#D97878",
-            },
-        )
-
-        st.plotly_chart(
-            make_chart(fig),
-            use_container_width=True,
-        )
-
-
-# ============================================================
-# 14. MODEL COMPARISON
-# ============================================================
-
-st.markdown("---")
-
-st.markdown(
-    '<div class="section-heading">Model Performance Comparison</div>',
-    unsafe_allow_html=True,
-)
-
-best_model = model_metrics.iloc[0]["Model"]
-
-best_auc = model_metrics.iloc[0]["ROC-AUC"]
-
-m1, m2, m3 = st.columns(3)
-
-with m1:
-
-    st.metric(
-        "Models Compared",
-        len(model_metrics),
-    )
-
-with m2:
-
-    st.metric(
-        "Top Model by ROC-AUC",
-        best_model,
-    )
-
-with m3:
-
-    st.metric(
-        "Top ROC-AUC",
-        f"{best_auc:.2%}" if pd.notna(best_auc) else "N/A",
-    )
-
-
-# Model metrics table
-
-st.markdown("#### Evaluation Metrics")
-
-formatted_metrics = model_metrics.copy()
-
-for column in [
+metric_columns = [
     "Accuracy",
     "Precision",
     "Recall",
     "F1 Score",
     "ROC-AUC",
-]:
+]
 
-    formatted_metrics[column] = formatted_metrics[
-        column
-    ].apply(
-        lambda value: (
-            f"{value:.2%}"
-            if pd.notna(value)
-            else "N/A"
+for column in metric_columns:
+    if column in metrics_df.columns:
+        metrics_df[column] = metrics_df[column] * 100
+
+
+metrics_df = metrics_df.sort_values(
+    by="ROC-AUC",
+    ascending=False,
+    na_position="last",
+).reset_index(drop=True)
+
+
+# Choose the model with the highest available ROC-AUC.
+if metrics_df["ROC-AUC"].notna().any():
+    best_model_name = metrics_df.iloc[0]["Model"]
+
+else:
+    best_model_name = (
+        metrics_df
+        .sort_values(
+            by="F1 Score",
+            ascending=False,
         )
+        .iloc[0]["Model"]
     )
 
+
+best_model = fitted_models[best_model_name]
+
+st.markdown("#### Model Performance Summary")
+
+st.caption(
+    "Models are evaluated on a held-out test set. "
+    "Reported metrics are percentages."
+)
+
+display_metrics_df = metrics_df.copy()
+
+for column in metric_columns:
+    if column in display_metrics_df.columns:
+        display_metrics_df[column] = display_metrics_df[
+            column
+        ].map(
+            lambda value: (
+                f"{value:.2f}%"
+                if pd.notna(value)
+                else "N/A"
+            )
+        )
+
 st.dataframe(
-    formatted_metrics,
+    display_metrics_df,
     use_container_width=True,
     hide_index=True,
 )
 
+best_col1, best_col2 = st.columns(2)
 
-# Model comparison chart
+with best_col1:
+    st.metric(
+        "Best Model",
+        best_model_name,
+    )
 
-st.markdown("#### Performance Metrics by Model")
-
-long_metrics = model_metrics.melt(
-    id_vars="Model",
-    value_vars=[
-        "Accuracy",
-        "Precision",
-        "Recall",
-        "F1 Score",
+with best_col2:
+    best_auc = model_metrics[best_model_name].get(
         "ROC-AUC",
-    ],
-    var_name="Metric",
-    value_name="Score",
-)
+        np.nan,
+    )
 
-fig = px.bar(
-    long_metrics,
-    x="Model",
-    y="Score",
-    color="Metric",
-    barmode="group",
-    range_y=[0, 1],
-)
-
-st.plotly_chart(
-    make_chart(
-        fig,
-        height=330,
-    ),
-    use_container_width=True,
-)
+    st.metric(
+        "Best Model ROC-AUC",
+        (
+            f"{best_auc * 100:.2f}%"
+            if pd.notna(best_auc)
+            else "N/A"
+        ),
+    )
 
 
 # ============================================================
-# 15. ROC CURVES
+# 19. MODEL COMPARISON CHARTS
 # ============================================================
 
-st.markdown("#### ROC Curve Comparison")
+st.markdown("---")
+st.subheader("Model Comparison")
 
-roc_fig = go.Figure()
+comparison_col1, comparison_col2 = st.columns(2)
 
-for name in trained_models:
 
-    probabilities = model_probabilities[name]
+with comparison_col1:
+    st.markdown("**Classification Metrics Comparison**")
 
-    fpr, tpr, _ = roc_curve(
-        y_test,
-        probabilities,
+    comparison_long = metrics_df.melt(
+        id_vars=["Model"],
+        value_vars=[
+            column
+            for column in metric_columns
+            if column != "ROC-AUC"
+        ],
+        var_name="Metric",
+        value_name="Score",
     )
 
-    auc = roc_auc_score(
-        y_test,
-        probabilities,
+    fig_model_metrics = px.bar(
+        comparison_long,
+        x="Model",
+        y="Score",
+        color="Metric",
+        barmode="group",
+        color_discrete_sequence=CHART_PALETTE,
+        hover_data={
+            "Score": ":.2f",
+        },
     )
 
-    roc_fig.add_trace(
-        go.Scatter(
-            x=fpr,
-            y=tpr,
-            mode="lines",
-            name=f"{name} (AUC {auc:.3f})",
+    fig_model_metrics.update_layout(
+        height=430,
+        margin=dict(l=10, r=10, t=20, b=10),
+        xaxis_title="Model",
+        yaxis_title="Score (%)",
+        yaxis_range=[0, 100],
+        legend_title_text="",
+    )
+
+    st.plotly_chart(
+        fig_model_metrics,
+        use_container_width=True,
+    )
+
+
+with comparison_col2:
+    st.markdown("**ROC-AUC Comparison**")
+
+    auc_data = metrics_df[
+        ["Model", "ROC-AUC"]
+    ].dropna()
+
+    fig_auc = px.bar(
+        auc_data,
+        x="Model",
+        y="ROC-AUC",
+        color="Model",
+        color_discrete_sequence=CHART_PALETTE,
+        text="ROC-AUC",
+    )
+
+    fig_auc.update_traces(
+        texttemplate="%{y:.2f}%",
+        textposition="outside",
+    )
+
+    fig_auc.update_layout(
+        height=430,
+        margin=dict(l=10, r=10, t=20, b=10),
+        xaxis_title="Model",
+        yaxis_title="ROC-AUC (%)",
+        yaxis_range=[
+            0,
+            min(
+                110,
+                max(
+                    100,
+                    (
+                        float(auc_data["ROC-AUC"].max()) + 10
+                        if not auc_data.empty
+                        else 100
+                    ),
+                ),
+            ),
+        ],
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        fig_auc,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# 20. ROC CURVES
+# ============================================================
+
+st.markdown("---")
+st.subheader("ROC Curve Analysis")
+
+fig_roc = go.Figure()
+
+for index, model_name in enumerate(fitted_models):
+    if model_name not in model_probabilities:
+        continue
+
+    probabilities_for_model = model_probabilities[model_name]
+
+    try:
+        fpr, tpr, _ = roc_curve(
+            y_test,
+            probabilities_for_model,
         )
-    )
+
+        auc_value = roc_auc_score(
+            y_test,
+            probabilities_for_model,
+        )
+
+        line_color = CHART_PALETTE[
+            index % len(CHART_PALETTE)
+        ]
+
+        fig_roc.add_trace(
+            go.Scatter(
+                x=fpr,
+                y=tpr,
+                mode="lines",
+                name=f"{model_name} (AUC = {auc_value:.3f})",
+                line=dict(
+                    color=line_color,
+                    width=2,
+                ),
+            )
+        )
+
+    except Exception:
+        continue
 
 
-roc_fig.add_trace(
+fig_roc.add_trace(
     go.Scatter(
         x=[0, 1],
         y=[0, 1],
         mode="lines",
         name="Random Classifier",
         line=dict(
+            color="#808080",
+            width=1,
             dash="dash",
-            color="#94A3B8",
         ),
     )
 )
 
-roc_fig.update_layout(
+fig_roc.update_layout(
+    height=480,
     xaxis_title="False Positive Rate",
     yaxis_title="True Positive Rate",
-    xaxis=dict(range=[0, 1]),
-    yaxis=dict(range=[0, 1]),
+    xaxis_range=[0, 1],
+    yaxis_range=[0, 1.02],
+    margin=dict(l=10, r=10, t=20, b=10),
+    legend_title_text="Models",
 )
 
 st.plotly_chart(
-    make_chart(
-        roc_fig,
-        height=330,
-    ),
+    fig_roc,
     use_container_width=True,
 )
 
 
 # ============================================================
-# 16. CONFUSION MATRIX
+# 21. CONFUSION MATRIX
 # ============================================================
 
-st.markdown("#### Confusion Matrix")
+st.markdown("---")
+st.subheader("Confusion Matrix")
 
-confusion_model = st.selectbox(
-    "Select model",
-    list(trained_models.keys()),
-    key="confusion_model",
+selected_confusion_model = st.selectbox(
+    "Select Model for Confusion Matrix",
+    options=list(fitted_models.keys()),
+    index=list(fitted_models.keys()).index(
+        best_model_name
+    ),
 )
+
+selected_predictions = model_predictions[
+    selected_confusion_model
+]
 
 cm = confusion_matrix(
     y_test,
-    model_predictions[confusion_model],
+    selected_predictions,
     labels=[0, 1],
 )
 
-fig = px.imshow(
+cm_df = pd.DataFrame(
     cm,
-    text_auto=True,
-    x=[
-        "Predicted Retained",
-        "Predicted Churned",
-    ],
-    y=[
+    index=[
         "Actual Retained",
         "Actual Churned",
     ],
-    color_continuous_scale=[
-        "#EDF3F8",
-        "#294C6B",
+    columns=[
+        "Predicted Retained",
+        "Predicted Churned",
     ],
+)
+
+fig_cm = px.imshow(
+    cm_df,
+    text_auto=True,
     aspect="auto",
-    title=confusion_model,
+    color_continuous_scale=[
+        CHART_LIGHT_GREEN,
+        CHART_PINK,
+    ],
+)
+
+fig_cm.update_layout(
+    height=420,
+    margin=dict(l=10, r=10, t=20, b=10),
+    xaxis_title="Predicted Label",
+    yaxis_title="Actual Label",
+    coloraxis_colorbar_title="Customers",
 )
 
 st.plotly_chart(
-    make_chart(
-        fig,
-        height=300,
-    ),
+    fig_cm,
     use_container_width=True,
 )
 
 
 # ============================================================
-# 17. FEATURE IMPORTANCE
+# 22. FEATURE IMPORTANCE
 # ============================================================
 
-st.markdown("#### Feature Importance")
+st.markdown("---")
+st.subheader("Feature Importance")
 
-importance_model_name = st.selectbox(
-    "Choose a model",
-    [
-        "Random Forest",
-        "Decision Tree",
-        "Gradient Boosting",
-    ],
-    key="importance_model",
-)
+classifier = best_model.named_steps["classifier"]
+fitted_preprocessor = best_model.named_steps["preprocessor"]
 
-importance_estimator = trained_models[
-    importance_model_name
-].named_steps["model"]
+importance_values = None
 
-if hasattr(
-    importance_estimator,
-    "feature_importances_",
-):
+if hasattr(classifier, "feature_importances_"):
+    importance_values = classifier.feature_importances_
 
-    importance_df = pd.DataFrame(
-        {
-            "Feature": X.columns,
-            "Importance": importance_estimator.feature_importances_,
-        }
-    ).sort_values(
-        "Importance",
-        ascending=False,
+elif hasattr(classifier, "coef_"):
+    importance_values = np.abs(
+        classifier.coef_[0]
     )
 
-    top_features = importance_df.head(12).sort_values(
-        "Importance",
-        ascending=True,
-    )
 
-    fig = px.bar(
-        top_features,
-        x="Importance",
-        y="Feature",
-        orientation="h",
-        color="Importance",
-        color_continuous_scale=[
-            "#DCE8F2",
-            "#294C6B",
-        ],
-        title=f"Most Important Features — {importance_model_name}",
-    )
+if importance_values is not None:
+    try:
+        feature_names = (
+            fitted_preprocessor.get_feature_names_out()
+        )
 
-    st.plotly_chart(
-        make_chart(
-            fig,
-            height=350,
-        ),
-        use_container_width=True,
-    )
+        feature_names = [
+            name.replace("numeric__", "")
+            .replace("categorical__", "")
+            for name in feature_names
+        ]
 
-    st.download_button(
-        "Download Feature Importance",
-        data=importance_df.to_csv(
-            index=False,
-        ).encode("utf-8"),
-        file_name="feature_importance.csv",
-        mime="text/csv",
+        importance_df = pd.DataFrame(
+            {
+                "Feature": feature_names,
+                "Importance": importance_values,
+            }
+        )
+
+        importance_df = importance_df.sort_values(
+            by="Importance",
+            ascending=False,
+        ).head(15)
+
+        fig_importance = px.bar(
+            importance_df.sort_values(
+                by="Importance",
+                ascending=True,
+            ),
+            x="Importance",
+            y="Feature",
+            orientation="h",
+            color="Importance",
+            color_continuous_scale=[
+                CHART_LIGHT_GREEN,
+                CHART_PINK,
+            ],
+        )
+
+        fig_importance.update_layout(
+            height=520,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Importance",
+            yaxis_title="Feature",
+            coloraxis_showscale=False,
+        )
+
+        st.plotly_chart(
+            fig_importance,
+            use_container_width=True,
+        )
+
+    except Exception as error:
+        st.info(
+            "Feature names could not be extracted for "
+            "this model."
+        )
+
+else:
+    st.info(
+        "The selected model does not provide native "
+        "feature importance or coefficients."
     )
 
 
 # ============================================================
-# 18. CORRELATION HEATMAP
+# 23. CORRELATION HEATMAP
 # ============================================================
 
-st.markdown("#### Feature Correlation")
+st.markdown("---")
+st.subheader("Feature Correlation Heatmap")
 
-numeric_data = filtered_df.select_dtypes(
-    include=np.number,
+numeric_correlation_data = clean_data.select_dtypes(
+    include=["number"],
 ).copy()
 
-if numeric_data.shape[1] >= 2:
+if TARGET_COLUMN not in numeric_correlation_data.columns:
+    numeric_correlation_data[TARGET_COLUMN] = clean_data[
+        TARGET_COLUMN
+    ]
 
-    correlation = numeric_data.corr(
-        numeric_only=True,
+# Remove the customer identifier from the correlation plot.
+if CUSTOMER_ID_COLUMN in numeric_correlation_data.columns:
+    numeric_correlation_data = numeric_correlation_data.drop(
+        columns=[CUSTOMER_ID_COLUMN],
+        errors="ignore",
     )
 
-    if correlation.shape[0] > 12:
+# Limit heatmap columns for readability.
+if numeric_correlation_data.shape[1] > 20:
+    correlation_strength = (
+        numeric_correlation_data.corr(numeric_only=True)[
+            TARGET_COLUMN
+        ]
+        .abs()
+        .sort_values(ascending=False)
+    )
 
-        if churn_col in correlation.columns:
+    selected_correlation_columns = (
+        correlation_strength.head(20).index.tolist()
+    )
 
-            important = (
-                correlation[churn_col]
-                .drop(labels=[churn_col])
-                .abs()
-                .sort_values(ascending=False)
-                .head(11)
-                .index.tolist()
-            )
+    numeric_correlation_data = (
+        numeric_correlation_data[
+            selected_correlation_columns
+        ]
+    )
 
-            selected = important + [churn_col]
+if numeric_correlation_data.shape[1] >= 2:
+    correlation_matrix = numeric_correlation_data.corr(
+        numeric_only=True
+    )
 
-            correlation = correlation.loc[
-                selected,
-                selected,
-            ]
-
-        else:
-
-            correlation = correlation.iloc[:12, :12]
-
-    fig = px.imshow(
-        correlation,
+    fig_correlation = px.imshow(
+        correlation_matrix,
         text_auto=".2f",
         aspect="auto",
-        color_continuous_scale="RdBu_r",
         zmin=-1,
         zmax=1,
+        color_continuous_scale=[
+            CHART_LIGHT_GREEN,
+            "#FFFFFF",
+            CHART_PINK,
+        ],
+    )
+
+    fig_correlation.update_layout(
+        height=max(
+            450,
+            min(
+                750,
+                35 * len(correlation_matrix.columns) + 200,
+            ),
+        ),
+        margin=dict(l=10, r=10, t=20, b=10),
+        coloraxis_colorbar_title="Correlation",
     )
 
     st.plotly_chart(
-        make_chart(
-            fig,
-            height=350,
-        ),
+        fig_correlation,
         use_container_width=True,
     )
+
+else:
+    st.info(
+        "At least two numeric columns are required "
+        "to create the correlation heatmap."
+    )
+
+
 # ============================================================
-# 19. FOOTER
+# 24. CUSTOMER CHURN PREDICTION
+# ============================================================
+
+st.markdown("---")
+st.subheader("Predict Customer Churn")
+
+st.write(
+    "Enter customer details below to estimate the likelihood "
+    "of churn using the selected machine learning model."
+)
+
+prediction_model_name = st.selectbox(
+    "Prediction Model",
+    options=list(fitted_models.keys()),
+    index=list(fitted_models.keys()).index(
+        best_model_name
+    ),
+)
+
+prediction_model = fitted_models[
+    prediction_model_name
+]
+
+with st.form("customer_prediction_form"):
+    st.markdown("#### Customer Information")
+
+    prediction_inputs = {}
+
+    input_columns = st.columns(3)
+
+    for index, column in enumerate(X.columns):
+        with input_columns[index % 3]:
+            original_series = X[column]
+
+            if column in numeric_features:
+                numeric_series = pd.to_numeric(
+                    original_series,
+                    errors="coerce",
+                )
+
+                median_value = numeric_series.median()
+
+                if pd.isna(median_value):
+                    median_value = 0.0
+
+                minimum_value = numeric_series.min()
+                maximum_value = numeric_series.max()
+
+                if pd.isna(minimum_value):
+                    minimum_value = 0.0
+
+                if pd.isna(maximum_value):
+                    maximum_value = 0.0
+
+                if minimum_value > maximum_value:
+                    minimum_value, maximum_value = (
+                        maximum_value,
+                        minimum_value,
+                    )
+
+                if minimum_value == maximum_value:
+                    prediction_inputs[column] = st.number_input(
+                        column,
+                        value=float(median_value),
+                        key=f"prediction_{column}",
+                    )
+
+                else:
+                    prediction_inputs[column] = st.number_input(
+                        column,
+                        min_value=float(minimum_value),
+                        max_value=float(maximum_value),
+                        value=float(
+                            min(
+                                max(
+                                    median_value,
+                                    minimum_value,
+                                ),
+                                maximum_value,
+                            )
+                        ),
+                        key=f"prediction_{column}",
+                    )
+
+            else:
+                category_options = (
+                    original_series.dropna()
+                    .astype(str)
+                    .value_counts()
+                    .index.tolist()
+                )
+
+                if not category_options:
+                    category_options = ["Unknown"]
+
+                prediction_inputs[column] = st.selectbox(
+                    column,
+                    options=category_options,
+                    key=f"prediction_{column}",
+                )
+
+    predict_button = st.form_submit_button(
+        "Predict Churn",
+        use_container_width=True,
+    )
+
+
+if predict_button:
+    try:
+        prediction_df = pd.DataFrame(
+            [prediction_inputs],
+            columns=X.columns,
+        )
+
+        for column in numeric_features:
+            prediction_df[column] = pd.to_numeric(
+                prediction_df[column],
+                errors="coerce",
+            )
+
+        for column in categorical_features:
+            prediction_df[column] = (
+                prediction_df[column].astype("object")
+            )
+
+        predicted_class = int(
+            prediction_model.predict(
+                prediction_df
+            )[0]
+        )
+
+        if hasattr(prediction_model, "predict_proba"):
+            predicted_probability = float(
+                prediction_model.predict_proba(
+                    prediction_df
+                )[0][1]
+            )
+
+        else:
+            predicted_probability = float(
+                predicted_class
+            )
+
+        prediction_result_col1, prediction_result_col2 = (
+            st.columns(2)
+        )
+
+        with prediction_result_col1:
+            st.metric(
+                "Predicted Churn Probability",
+                f"{predicted_probability * 100:.2f}%",
+            )
+
+        with prediction_result_col2:
+            st.metric(
+                "Prediction",
+                (
+                    "Churned"
+                    if predicted_class == 1
+                    else "Retained"
+                ),
+            )
+
+        if predicted_class == 1:
+            st.warning(
+                "The model predicts that this customer "
+                "may churn. Consider reviewing the customer's "
+                "service experience, contract, and billing."
+            )
+
+        else:
+            st.success(
+                "The model predicts that this customer "
+                "is likely to be retained."
+            )
+
+        st.caption(
+            "This is a machine learning estimate, not a "
+            "guarantee of future customer behaviour."
+        )
+
+    except Exception as error:
+        st.error(
+            "Prediction could not be completed. "
+            "Check the input values and try again."
+        )
+
+        st.exception(error)
+
+
+# ============================================================
+# 25. EXPORT MODEL RESULTS
+#     Retained. This exports model metrics only.
+#     Dataset Explorer and customer-data downloads are removed.
+# ============================================================
+
+st.markdown("---")
+st.subheader("Export Model Results")
+
+st.write(
+    "Download the model comparison metrics for your report "
+    "or further analysis."
+)
+
+export_metrics_df = pd.DataFrame.from_dict(
+    model_metrics,
+    orient="index",
+)
+
+export_metrics_df.index.name = "Model"
+
+export_metrics_df = export_metrics_df.reset_index()
+
+for column in metric_columns:
+    if column in export_metrics_df.columns:
+        export_metrics_df[column] = (
+            export_metrics_df[column] * 100
+        ).round(2)
+
+export_metrics_csv = export_metrics_df.to_csv(
+    index=False
+).encode("utf-8")
+
+st.download_button(
+    label="Download Model Comparison Results (CSV)",
+    data=export_metrics_csv,
+    file_name="customer_churn_model_results.csv",
+    mime="text/csv",
+    use_container_width=True,
+)
+# ============================================================
+# 26. FOOTER
 # ============================================================
 
 st.markdown("---")
 
-st.markdown(
-    """
-    <div style="
-        text-align: center;
-        color: #627D98;
-        font-size: 11px;
-        padding: 8px;
-    ">
-        Customer Churn Intelligence |
-        Python • Pandas • Scikit-learn • Plotly • Streamlit
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.caption(
+    "Customer Churn Intelligence Dashboard | "
+    "Machine Learning | Predictive Analytics"
 )
